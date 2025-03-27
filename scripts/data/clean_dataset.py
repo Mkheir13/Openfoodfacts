@@ -14,12 +14,6 @@ import numpy as np
 import re
 import matplotlib.pyplot as plt
 
-# Imports optionnels
-try:
-    import seaborn as sns
-except ImportError:
-    print("Warning: seaborn not installed. Some visualizations might be limited.")
-
 # Imports internes
 try:
     from ..data.analysis import analyze_data_quality
@@ -29,7 +23,7 @@ except ImportError:
     print("Warning: Some internal modules could not be imported. Some features might be limited.")
 
 # Constants
-MISSING_THRESHOLD = 0.8
+MISSING_THRESHOLD = 0.3
 FIGURE_SIZE = (15, 5)
 COLORS = {
     'before': '#ff9999',
@@ -94,8 +88,23 @@ def display_cleaning_summary(info: Dict) -> None:
         info: Dictionnaire contenant les informations du nettoyage
     """
     print("=== Résumé du nettoyage ===")
-    print(f"Dimensions initiales: {info['final_stats']['initial_rows']} lignes, {info['final_stats']['initial_columns']} colonnes")
-    print(f"Dimensions finales: {info['final_stats']['final_rows']} lignes, {info['final_stats']['final_columns']} colonnes")
+    initial_rows = info['final_stats']['initial_rows']
+    initial_cols = info['final_stats']['initial_columns']
+    final_rows = info['final_stats']['final_rows']
+    final_cols = info['final_stats']['final_columns']
+    
+    print(f"Dimensions initiales: {initial_rows:,} lignes, {initial_cols} colonnes")
+    print(f"Dimensions finales: {final_rows:,} lignes, {final_cols} colonnes")
+    
+    # Calcul des pourcentages de valeurs manquantes
+    total_cells_before = initial_rows * initial_cols
+    total_cells_after = final_rows * final_cols
+    missing_before = info['data_summary']['missing_values_before']
+    missing_after = info['data_summary']['missing_values_after']
+    
+    print(f"\nValeurs manquantes:")
+    print(f"  Avant: {missing_before:,} cellules ({(missing_before/total_cells_before)*100:.1f}% du total)")
+    print(f"  Après: {missing_after:,} cellules ({(missing_after/total_cells_after)*100:.1f}% du total)")
 
     print("\n=== Colonnes problématiques ===")
     for category, columns in info['problematic_columns'].items():
@@ -279,19 +288,12 @@ def identify_problematic_columns(df: pd.DataFrame,
 def clean_dataset(
     df: pd.DataFrame,
     max_categories: int = 30,
-    missing_threshold: float = 0.8,
+    missing_threshold: float = 0.3,
     extract_quantities: bool = True,
     clean_text: bool = True
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Nettoie le dataset en identifiant et traitant les différents types de problèmes.
-    
-    Args:
-        df: DataFrame à nettoyer
-        max_categories: Nombre maximum de catégories pour les variables catégorielles
-        missing_threshold: Seuil de valeurs manquantes acceptables
-        extract_quantities: Si True, extrait les quantités des colonnes de taille de portion
-        clean_text: Si True, nettoie les colonnes textuelles
     """
     cleaning_info = {
         'removed_columns': [],
@@ -303,34 +305,104 @@ def clean_dataset(
     
     df_clean = df.copy()
     
-    # 1. Variables non pertinentes
+    # 1. Supprimer les colonnes avec trop de valeurs manquantes
+    missing_ratios = df_clean.isnull().mean()
+    high_missing_cols = missing_ratios[missing_ratios > missing_threshold].index
+    df_clean = df_clean.drop(columns=high_missing_cols)
+    cleaning_info['removed_columns'].extend(high_missing_cols.tolist())
+    
+    # 2. Variables non pertinentes - Liste étendue
     redundant_columns = [
-        'image_url', 'image_small_url',  # Garder uniquement image_front_url
-        'created_datetime', 'last_modified_datetime',  # Garder uniquement les timestamps
-        'creator', 'last_modified_by'  # Informations non pertinentes pour l'analyse
+        # URLs et images
+        'image_url', 'image_small_url', 'image_front_url', 'image_front_small_url',
+        'image_front_thumb_url', 'image_thumb_url', 'image_nutrition_url',
+        'image_nutrition_small_url', 'image_ingredients_url', 'image_ingredients_small_url',
+        
+        # Métadonnées temporelles
+        'created_datetime', 'last_modified_datetime', 'last_modified_t', 'created_t',
+        'last_image_t', 'last_image_datetime',
+        
+        # Informations de contribution
+        'creator', 'last_modified_by', 'editors', 'editors_tags',
+        
+        # Tags et informations secondaires
+        'url', 'packaging_tags', 'misc_tags', 'origins_tags', 'traces_tags',
+        'packaging_text', 'packaging', 'brands_tags', 'categories_tags',
+        'labels_tags', 'labels_en', 'labels_fr', 'labels',
+        'countries_tags', 'countries_en', 'countries',
+        'states_tags', 'states_en', 'states',
+        'emb_codes_tags', 'emb_codes',
+        'cities_tags', 'purchase_places', 'stores', 'stores_tags',
+        
+        # Versions et identifiants
+        'complete', 'checked', 'rev', 'entry_dates_tags',
+        'additives_n', 'additives_tags', 'additives',
+        'unknown_nutrients_tags', 'correctors_tags',
+        'photographers_tags', 'informers_tags', 'checkers_tags',
+        
+        # Colonnes avec informations redondantes ou peu utiles
+        'generic_name', 'packaging_text', 'serving_size',
+        'nutrition_grade_fr', 'main_category', 'image_nutrition_thumb_url'
     ]
+    
     df_clean = df_clean.drop(columns=[col for col in redundant_columns if col in df_clean.columns])
-    cleaning_info['removed_columns'].extend(redundant_columns)
+    cleaning_info['removed_columns'].extend([col for col in redundant_columns if col in df_clean.columns])
 
-    # 2. Traitement des valeurs manquantes selon le type de variable
-    # Variables nutritionnelles : imputation par 0
+    # 3. Traitement des valeurs manquantes selon le type de variable
+    # Variables nutritionnelles
     nutrition_cols = [col for col in df_clean.columns if any(x in col for x in 
                      ['energy', 'fat', 'protein', 'carbohydrates', 'sugar', 'fiber', 'salt'])]
+    
     for col in nutrition_cols:
         if col in df_clean.columns:
-            df_clean[col] = df_clean[col].fillna(0)
-            cleaning_info['imputed_columns'].append((col, 'zero_imputation'))
+            # Supprimer la colonne si plus de 20% de valeurs manquantes (plus strict)
+            if df_clean[col].isna().mean() > 0.2:
+                df_clean = df_clean.drop(columns=[col])
+                cleaning_info['removed_columns'].append(col)
+            else:
+                # Sinon, imputer avec la médiane
+                median_value = df_clean[col].median()
+                df_clean[col] = df_clean[col].fillna(median_value)
+                cleaning_info['imputed_columns'].append((col, f'median_imputation_{median_value:.2f}'))
 
-    # Variables catégorielles : imputation par mode si < 50% manquantes
+    # Variables catégorielles
     categorical_cols = [col for col in df_clean.columns if df_clean[col].dtype == 'object']
     for col in categorical_cols:
         missing_ratio = df_clean[col].isnull().mean()
-        if missing_ratio < 0.5:
+        # Supprimer si plus de 30% de valeurs manquantes (plus strict)
+        if missing_ratio > 0.3:
+            df_clean = df_clean.drop(columns=[col])
+            cleaning_info['removed_columns'].append(col)
+        else:
             mode_value = df_clean[col].mode().iloc[0]
             df_clean[col] = df_clean[col].fillna(mode_value)
             cleaning_info['imputed_columns'].append((col, 'mode_imputation'))
 
-    # 3. Extraction de motifs
+    # 4. Supprimer les lignes avec trop de valeurs manquantes
+    # Si une ligne a plus de 30% de valeurs manquantes après le nettoyage des colonnes
+    row_missing_ratio = df_clean.isnull().mean(axis=1)
+    df_clean = df_clean[row_missing_ratio <= 0.3]
+
+    # 5. Supprimer les lignes dupliquées
+    df_clean = df_clean.drop_duplicates()
+
+    # 6. Supprimer les lignes avec des valeurs aberrantes
+    for col in nutrition_cols:
+        if col in df_clean.columns:
+            # Calculer les limites pour les valeurs aberrantes
+            Q1 = df_clean[col].quantile(0.25)
+            Q3 = df_clean[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            # Supprimer les lignes avec des valeurs aberrantes
+            df_clean = df_clean[
+                (df_clean[col] >= lower_bound) & 
+                (df_clean[col] <= upper_bound)
+            ]
+
+    # 7. Extraction de motifs
     if 'serving_size' in df_clean.columns:
         # Extraction des quantités et unités de serving_size
         serving_info = df_clean['serving_size'].str.extract(r'(\d+(?:\.\d+)?)\s*([a-zA-Z]+)')
@@ -346,7 +418,7 @@ def clean_dataset(
         df_clean['ingredients_clean'] = df_clean['ingredients_clean'].str.replace(r'[^\w\s]', ' ')
         cleaning_info['extracted_patterns']['ingredients'] = 'basic_cleaning'
 
-    # 4. Détection et correction des erreurs
+    # 8. Détection et correction des erreurs
     # Vérification des valeurs négatives dans les colonnes nutritionnelles
     for col in nutrition_cols:
         if col in df_clean.columns:
@@ -355,7 +427,7 @@ def clean_dataset(
                 df_clean[col] = df_clean[col].clip(lower=0)
                 cleaning_info['errors_found'][col] = f"corrected_{negative_values}_negative_values"
 
-    # 5. Traitements spécifiques
+    # 9. Traitements spécifiques
     # Standardisation des unités nutritionnelles (tout en 100g)
     per_serving_cols = [col for col in df_clean.columns if '_serving' in col]
     for col in per_serving_cols:
@@ -452,6 +524,31 @@ def detect_category_anomalies(df: pd.DataFrame) -> Dict:
     """
     anomalies = {}
     
+    # Vérifier si la colonne 'categories' existe
+    if 'categories' not in df.columns:
+        # Si la colonne n'existe pas, on analyse les anomalies globalement
+        for col in ['energy_100g', 'proteins_100g', 'fat_100g']:
+            if col in df.columns:
+                Q1 = df[col].quantile(0.25)
+                Q3 = df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                # Définir les limites
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                
+                # Identifier les anomalies
+                outliers = df[
+                    (df[col] < lower_bound) | 
+                    (df[col] > upper_bound)
+                ]
+                
+                if not outliers.empty:
+                    anomalies[col] = outliers.index.tolist()
+        
+        return anomalies
+    
+    # Si la colonne existe, on analyse par catégorie
     for category in df['categories'].unique():
         category_data = df[df['categories'] == category]
         

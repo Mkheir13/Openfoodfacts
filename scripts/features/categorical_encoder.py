@@ -6,6 +6,7 @@ import os
 import re
 import hashlib
 import matplotlib.pyplot as plt
+import seaborn as sns
 from pathlib import Path
 from typing import Dict, List, Union, Optional
 from dataclasses import dataclass
@@ -148,13 +149,11 @@ def plot_categorical_distributions(df: pd.DataFrame,
             'Top 3 Categories': ', '.join([f"{cat} ({pct}%)" for cat, pct in zip(value_counts.index[:3], percentages[:3])])
         })
         
-        # Créer le graphique en barres avec matplotlib
         plt.figure(figsize=(12, 6))
-        plt.bar(range(len(percentages[:top_n])), percentages[:top_n], alpha=0.8)
+        sns.barplot(x=percentages[:top_n], y=percentages[:top_n].index)
         plt.title(f'Distribution des {top_n} catégories les plus fréquentes\npour la colonne {col}')
-        plt.xlabel('Catégories')
-        plt.ylabel('Pourcentage')
-        plt.xticks(range(len(percentages[:top_n])), percentages[:top_n].index, rotation=45, ha='right')
+        plt.xlabel('Pourcentage')
+        plt.ylabel('Catégories')
         plt.tight_layout()
         plt.savefig(os.path.join(viz_dir, f'distribution_{clean_filename(col)}.png'))
         plt.close()
@@ -162,10 +161,8 @@ def plot_categorical_distributions(df: pd.DataFrame,
     summary_df = pd.DataFrame(summary_stats)
     summary_df.to_csv(os.path.join(viz_dir, 'categorical_summary.csv'), index=False)
     
-    # Créer le graphique de comparaison avec matplotlib
     plt.figure(figsize=(15, 8))
-    plt.barh(range(len(summary_df)), summary_df['Unique Values'])
-    plt.yticks(range(len(summary_df)), summary_df['Column'], rotation=0)
+    sns.barplot(data=summary_df, x='Unique Values', y='Column')
     plt.title('Nombre de catégories uniques par colonne')
     plt.xlabel('Nombre de catégories uniques')
     plt.ylabel('Colonnes')
@@ -173,14 +170,14 @@ def plot_categorical_distributions(df: pd.DataFrame,
     plt.savefig(os.path.join(viz_dir, 'unique_categories_comparison.png'))
     plt.close()
 
-def encode_categorical_features(data: Union[str, pd.DataFrame],
+def encode_categorical_features(data_path: str,
                               nrows: int = 10000,
                               config: Optional[EncodingConfig] = None) -> Dict:
     """Encode automatiquement toutes les colonnes catégorielles d'un dataset.
     
     Args:
-        data: Chemin vers le fichier CSV ou DataFrame pandas
-        nrows: Nombre de lignes à lire (utilisé uniquement si data est un chemin de fichier)
+        data_path: Chemin vers le fichier CSV
+        nrows: Nombre de lignes à lire
         config: Configuration d'encodage (optionnel)
         
     Returns:
@@ -194,15 +191,12 @@ def encode_categorical_features(data: Union[str, pd.DataFrame],
         os.makedirs(output_dir)
     
     print("Chargement des données...")
-    if isinstance(data, str):
-        df = pd.read_csv(data, 
-                        nrows=nrows, 
-                        on_bad_lines='skip',
-                        sep='\t',
-                        encoding='utf-8',
-                        low_memory=False)
-    else:
-        df = data.copy()
+    df = pd.read_csv(data_path, 
+                    nrows=nrows, 
+                    on_bad_lines='skip',
+                    sep='\t',
+                    encoding='utf-8',
+                    low_memory=False)
     
     categorical_columns = df.select_dtypes(include=['object', 'category']).columns
     print(f"\nColonnes catégorielles identifiées ({len(categorical_columns)}):")
