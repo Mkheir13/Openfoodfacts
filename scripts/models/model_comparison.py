@@ -2,6 +2,9 @@
 Module de comparaison des différents modèles de clustering.
 Permet d'évaluer et de comparer les performances de K-means, GMM, DBSCAN et OPTICS.
 """
+import joblib
+
+
 try:
 	import os
 	import time
@@ -206,14 +209,14 @@ class ModelComparison:
 		
 		return pd.DataFrame(metrics)
 
-	def plot_comparison(self, metric: str = 'silhouette_score'):
+	def plot_comparison(self, metric: str = 'Score de silhouette'):
 		"""
 		Visualise la comparaison des modèles selon une métrique.
 		
 		Paramètres:
 		-----------
 		metric : str
-			Métrique à visualiser
+			Métrique à visualiser (en français)
 		"""
 		df = self.compare_metrics()
 		
@@ -253,49 +256,45 @@ class ModelComparison:
 					c=labels,
 					cmap='viridis'
 				)
+				plt.title(f'Clusters - {model_name}')
 			else:
-				# Sinon, on utilise PCA pour réduire à 2D
+				# Pour les données de dimension supérieure, on utilise PCA
 				from sklearn.decomposition import PCA
 				pca = PCA(n_components=2)
-				data_2d = pca.fit_transform(self.scaled_data)
+				X_pca = pca.fit_transform(self.scaled_data)
+				
 				plt.scatter(
-					data_2d[:, 0],
-					data_2d[:, 1],
+					X_pca[:, 0],
+					X_pca[:, 1],
 					c=labels,
 					cmap='viridis'
 				)
-			
-			plt.title(f'Clusters - {model_name}')
-			plt.xlabel('Première composante')
-			plt.ylabel('Deuxième composante')
+				plt.title(f'Clusters - {model_name} (PCA)')
 		
 		plt.tight_layout()
 		plt.show()
 
-	def save_results(self, path: str = 'results'):
+	def save_results(self, output_dir: str):
 		"""
-		Sauvegarde les résultats de la comparaison.
+		Sauvegarde les résultats et les modèles.
 		
 		Paramètres:
 		-----------
-		path : str
-			Chemin où sauvegarder les résultats
+		output_dir : str
+			Dossier de sortie
 		"""
-		os.makedirs(path, exist_ok=True)
-		
-		# Sauvegarde des métriques
-		metrics_df = self.compare_metrics()
-		metrics_df.to_csv(os.path.join(path, 'metrics.csv'), index=False)
+		os.makedirs(output_dir, exist_ok=True)
 		
 		# Sauvegarde des modèles
 		for model_name, model in self.models.items():
 			if model is not None:
-				joblib.dump(model, os.path.join(path, f'{model_name}_model.pkl'))
+				joblib.dump(model, os.path.join(output_dir, f'{model_name}.joblib'))
 		
-		# Sauvegarde du scaler
-		joblib.dump(self.scaler, os.path.join(path, 'scaler.pkl'))
+		# Sauvegarde des métriques
+		metrics_df = self.compare_metrics()
+		metrics_df.to_csv(os.path.join(output_dir, 'metrics.csv'), index=False)
 		
-		print(f"Résultats sauvegardés dans {path}")
+		print(f"Résultats sauvegardés dans {output_dir}")
 
 	def load_results(self, path: str = 'results'):
 		"""
