@@ -78,9 +78,14 @@ def process_numeric_columns(df: pd.DataFrame, min_unique_ratio: float = 0.01) ->
     
     for column in numeric_columns:
         # Vérification du ratio de valeurs uniques
-        unique_ratio = df[column].nunique() / len(df)
-        if unique_ratio < min_unique_ratio:
-            info['dropped_columns'].append((column, 'low_variance'))
+        if len(df) > 0:  # Vérification que le DataFrame n'est pas vide
+            unique_ratio = df[column].nunique() / len(df)
+            if unique_ratio < min_unique_ratio:
+                info['dropped_columns'].append((column, 'low_variance'))
+                continue
+        else:
+            # Si le DataFrame est vide, conserver la colonne par défaut
+            info['numeric_columns'].append(column)
             continue
             
         # Optimisation du type
