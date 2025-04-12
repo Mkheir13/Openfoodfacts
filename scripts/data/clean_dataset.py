@@ -497,19 +497,42 @@ def validate_nutritional_values(df: pd.DataFrame) -> pd.DataFrame:
     
     # Vérifier la cohérence des macronutriments
     macro_cols = ['proteins_100g', 'carbohydrates_100g', 'fat_100g']
-    df['total_macros'] = df[macro_cols].sum(axis=1)
     
-    # Identifier les lignes incohérentes (somme > 100g)
-    inconsistent_rows = df['total_macros'] > 100
-    
-    if inconsistent_rows.any():
-        # Normaliser les valeurs pour qu'elles somment à 100
-        for col in macro_cols:
-            df.loc[inconsistent_rows, col] = (
-                df.loc[inconsistent_rows, col] / 
-                df.loc[inconsistent_rows, 'total_macros'] * 100
-            )
-    
+    # Vérifier que toutes les colonnes macro existent avant de calculer la somme
+    if all(col in df.columns for col in macro_cols):
+        df['total_macros'] = df[macro_cols].sum(axis=1)
+        
+        # Identifier les lignes incohérentes (somme > 100g)
+        inconsistent_rows = df['total_macros'] > 100
+        
+        if inconsistent_rows.any():
+            # Normaliser les valeurs pour qu'elles somment à 100
+            # Assurer que les colonnes existent toujours avant la normalisation
+            for col in macro_cols:
+                 if col in df.columns: # Vérification supplémentaire au cas où
+                     df.loc[inconsistent_rows, col] = (
+                         df.loc[inconsistent_rows, col] / 
+                         df.loc[inconsistent_rows, 'total_macros'] * 100
+                     )
+            
+            # Supprimer la colonne temporaire si elle a été créée
+            df = df.drop(columns=['total_macros'])
+            
+    else:
+        # Gérer le cas où une ou plusieurs colonnes manquent
+        # Optionnel : logger un avertissement ou juste passer
+        print(f"Avertissement: Impossible de valider la somme des macronutriments car une ou plusieurs colonnes parmi {macro_cols} sont manquantes.")
+        pass # Continuer sans cette validation spécifique
+
+    # Appliquer les ranges valides (déplacé après la potentielle normalisation)
+    for col, (min_val, max_val) in valid_ranges.items():
+        if col in df.columns:
+            # Remplacer les valeurs hors limites par NaN ou les clipper
+            # Ici, on les clippe pour garder les lignes
+            df[col] = df[col].clip(lower=min_val, upper=max_val)
+            # Ou pour supprimer les lignes :
+            # df = df[(df[col] >= min_val) & (df[col] <= max_val)]
+
     return df
 
 def detect_category_anomalies(df: pd.DataFrame) -> Dict:

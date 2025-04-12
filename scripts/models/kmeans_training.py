@@ -20,7 +20,7 @@ except ImportError as e:
     print(f"Erreur lors de l'importation des modules : {e}")
 
 
-def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette'):
+def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette', n_init=10):
     """
     Détermine le nombre optimal de clusters en utilisant différentes métriques.
     
@@ -38,6 +38,8 @@ def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette'):
         - 'calinski_harabasz' : Score de Calinski-Harabasz (plus élevé = meilleur)
         - 'davies_bouldin' : Score de Davies-Bouldin (plus bas = meilleur)
         - 'inertia' : Inertie du clustering (plus bas = meilleur)
+    n_init : int
+        Nombre d'initialisations pour chaque valeur de k (défaut: 10)
     
     Retourne:
     --------
@@ -46,7 +48,7 @@ def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette'):
     scores = {}
 
     for k in range(k_min, k_max + 1):
-        kmeans = KMeans(n_clusters=k, random_state=42)
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=n_init)
         labels = kmeans.fit_predict(data)
 
         if method == 'silhouette':
