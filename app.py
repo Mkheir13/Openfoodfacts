@@ -68,62 +68,28 @@ with tab1:
         if st.button("Lancer le Preprocessing", key="preprocess_button"):
             with st.spinner("Nettoyage en cours... Veuillez patienter."):
                 try:
-                    # Au lieu de charger à nouveau le fichier, utiliser les données déjà chargées
+                    # Simplifier pour utiliser directement load_and_prepare_data
                     with st.spinner("Préparation des données numériques..."):
-                        # Extraire les colonnes numériques du DataFrame déjà chargé
-                        import numpy as np
-                        import pandas as pd
+                        # Nous avons besoin de sauvegarder temporairement le DataFrame
+                        import tempfile
+                        import os
                         
-                        df_to_process = data_to_process.copy()
-                        st.write(f"Traitement de {len(df_to_process)} lignes et {len(df_to_process.columns)} colonnes...")
+                        with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as temp_file:
+                            temp_path = temp_file.name
+                            # Sauver le DataFrame en CSV
+                            data_to_process.to_csv(temp_path, index=False, sep='\t')
                         
-                        # Code similaire à load_and_prepare_data mais adapté pour travailler avec un DataFrame existant
-                        numeric_columns = []
-                        
-                        columns_to_check = sorted(
-                            df_to_process.columns,
-                            key=lambda x: any(keyword in str(x).lower() for keyword in PRIORITY_KEYWORDS),
-                            reverse=True
-                        )
-                        
-                        for col in columns_to_check:
-                            try:
-                                if pd.api.types.is_numeric_dtype(df_to_process[col]):
-                                    numeric_columns.append(col)
-                                    continue
-                                
-                                cleaned_series = (df_to_process[col].astype(str)
-                                                .replace(['', 'NA', 'N/A', 'nan', 'NaN', 'None',
-                                                        '<NA>', 'undefined', '?'], np.nan)
-                                                .str.replace(',', '.')
-                                                .str.strip()
-                                                .str.replace(r'[^\d.-]', '', regex=True))
-                                
-                                numeric_series = pd.to_numeric(cleaned_series, errors='coerce')
-                                valid_count = numeric_series.notna().sum()
-                                valid_ratio = valid_count / len(df_to_process)
-                                
-                                if valid_ratio > VALID_RATIO_THRESHOLD:
-                                    df_to_process[col] = numeric_series
-                                    numeric_columns.append(col)
-                            except Exception as e:
-                                continue
-                        
-                        if not numeric_columns:
-                            raise ValueError("Aucune colonne numérique n'a été trouvée dans le fichier")
-                        
-                        df_numeric = df_to_process[numeric_columns].copy()
-                        
-                        for column in df_numeric.columns:
-                            df_numeric[column] = df_numeric[column].replace([np.inf, -np.inf], np.nan)
-                            median_value = df_numeric[column].median()
-                            
-                            if pd.isna(median_value):
-                                median_value = 0
-                            
-                            df_numeric[column] = df_numeric[column].fillna(median_value)
-                        
-                        st.success(f"Préparation terminée: {len(df_numeric.columns)} colonnes numériques extraites")
+                        try:
+                            # Maintenant utiliser load_and_prepare_data avec ce fichier temporaire
+                            df_numeric = load_and_prepare_data(temp_path)
+                            # Supprimer le fichier temporaire
+                            os.unlink(temp_path)
+                            st.success(f"Préparation terminée: {len(df_numeric.columns)} colonnes numériques extraites")
+                        except Exception as e:
+                            # Supprimer le fichier temporaire en cas d'erreur
+                            os.unlink(temp_path)
+                            st.error(f"Erreur lors du preprocessing: {str(e)}")
+                            raise e
                     
                     # Étape 2: Utiliser prepare_features_for_clustering pour le traitement avancé
                     # Paramètres configurables
@@ -255,21 +221,41 @@ with tab2:
 
                     params = {}
                     if algo == "K-Means":
-                        params['n_clusters'] = st.slider("Nombre de clusters (k)", min_value=2, max_value=20, value=5, step=1)
-                        # Ajout du paramètre n_init pour l'entraînement final
-                        params['n_init'] = st.slider("Nombre d'initialisations (n_init)", min_value=1, max_value=20, value=5, step=1)
-                        # Ajouter d'autres paramètres K-Means si besoin (init, max_iter)
-                        params['k_min'] = 2 # Pour find_optimal_clusters si on l'utilise
-                        # S'assurer que k_max soit au moins égal à n_clusters
-                        default_k_max = max(10, params['n_clusters'])
-                        params['k_max'] = st.number_input("k max pour recherche auto (si k non fixé)", 
-                                                         min_value=params['n_clusters'], 
-                                                         max_value=30, 
-                                                         value=default_k_max)
-                        params['optimize_method'] = 'multiple_init' # Utiliser la méthode par défaut de kmeans_training
-                        use_optimal_k = st.checkbox("Trouver k optimal automatiquement (ignore le slider k)?", value=False)
-
-
+                        # Supprimer le slider n_clusters et activer automatiquement l'optimisation
+                        st.info("La recherche automatique du nombre optimal de clusters est activée")
+                        
+                        # Paramètres pour la recherche automatique du nombre optimal
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            params['k_min'] = st.number_input("Nombre minimum de clusters à tester", 
+                                                           min_value=2, 
+                                                           max_value=10, 
+                                                           value=2)
+                        with col2:
+                            params['k_max'] = st.number_input("Nombre maximum de clusters à tester", 
+                                                           min_value=3, 
+                                                           max_value=30, 
+                                                           value=15)
+                        
+                        # Paramètres d'initialisation
+                        params['n_init'] = st.slider("Nombre d'initialisations (n_init)", 
+                                                  min_value=1, 
+                                                  max_value=20, 
+                                                  value=5, 
+                                                  step=1)
+                        
+                        # Méthodes d'optimisation disponibles
+                        optimize_methods = ['elbow', 'silhouette', 'multiple_init']
+                        params['optimize_method'] = st.selectbox(
+                            "Méthode de recherche du nombre optimal", 
+                            options=optimize_methods,
+                            index=1  # silhouette par défaut
+                        )
+                        
+                        # Activer l'optimisation automatique
+                        params['optimize'] = True
+                        params['n_clusters'] = None  # Forcer None pour activer la recherche auto
+                        
                     elif algo == "DBSCAN":
                         params['eps'] = st.slider("Epsilon (eps)", min_value=0.1, max_value=5.0, value=0.5, step=0.1)
                         params['min_samples'] = st.slider("Nombre minimum de points (min_samples)", min_value=2, max_value=50, value=5, step=1)
@@ -306,7 +292,7 @@ with tab2:
                                 if algo == "K-Means":
                                     kmeans_params = {
                                         'n_clusters': params['n_clusters'],
-                                        'optimize': use_optimal_k,
+                                        'optimize': params['optimize'],
                                         'k_min': params['k_min'],
                                         'k_max': params['k_max'],
                                         'n_init': params['n_init'],
