@@ -221,10 +221,9 @@ with tab2:
 
                     params = {}
                     if algo == "K-Means":
-                        # Supprimer le slider n_clusters et activer automatiquement l'optimisation
-                        st.info("La recherche automatique du nombre optimal de clusters est activée")
+                        # Partie 1: Configuration de l'optimisation du nombre de clusters
+                        st.subheader("Optimisation du nombre de clusters")
                         
-                        # Paramètres pour la recherche automatique du nombre optimal
                         col1, col2 = st.columns(2)
                         with col1:
                             params['k_min'] = st.number_input("Nombre minimum de clusters à tester", 
@@ -237,24 +236,78 @@ with tab2:
                                                            max_value=30, 
                                                            value=15)
                         
-                        # Paramètres d'initialisation
-                        params['n_init'] = st.slider("Nombre d'initialisations (n_init)", 
-                                                  min_value=1, 
-                                                  max_value=20, 
-                                                  value=5, 
-                                                  step=1)
-                        
-                        # Méthodes d'optimisation disponibles
-                        optimize_methods = ['elbow', 'silhouette', 'multiple_init']
-                        params['optimize_method'] = st.selectbox(
-                            "Méthode de recherche du nombre optimal", 
-                            options=optimize_methods,
-                            index=1  # silhouette par défaut
+                        # Méthodes de scoring pour l'optimisation
+                        scoring_methods = ['silhouette', 'calinski_harabasz', 'davies_bouldin', 'inertia']
+                        params['scoring_method'] = st.selectbox(
+                            "Méthode d'évaluation pour le nombre optimal de clusters", 
+                            options=scoring_methods,
+                            index=0,  # silhouette par défaut
+                            help="Silhouette (plus élevé = meilleur), Calinski-Harabasz (plus élevé = meilleur), Davies-Bouldin (plus bas = meilleur), Inertia (plus bas = meilleur)"
                         )
                         
-                        # Activer l'optimisation automatique
-                        params['optimize'] = True
-                        params['n_clusters'] = None  # Forcer None pour activer la recherche auto
+                        params['n_init'] = st.slider("Nombre d'initialisations pour chaque valeur de k", 
+                                                 min_value=1, 
+                                                 max_value=20, 
+                                                 value=10)
+                        
+                        # Partie 2: Configuration de l'entraînement K-means
+                        st.subheader("Configuration de l'entraînement K-means")
+                        
+                        # Option pour utiliser le nombre optimal ou définir manuellement
+                        use_optimal = st.checkbox("Rechercher automatiquement le nombre optimal de clusters", value=True)
+                        if not use_optimal:
+                            params['n_clusters'] = st.number_input(
+                                "Nombre de clusters", 
+                                min_value=2, 
+                                max_value=50, 
+                                value=5
+                            )
+                        else:
+                            params['n_clusters'] = None
+                        
+                        # Méthodes d'optimisation pour K-means
+                        optimize_methods = ['multiple_init', 'grid_search', 'elkan']
+                        params['optimize_method'] = st.selectbox(
+                            "Méthode d'optimisation des paramètres K-means", 
+                            options=optimize_methods,
+                            index=0  # multiple_init par défaut
+                        )
+                        
+                        # Paramètres spécifiques selon la méthode d'optimisation
+                        if params['optimize_method'] == 'multiple_init':
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                params['max_iter'] = st.slider(
+                                    "Nombre maximum d'itérations", 
+                                    min_value=100, 
+                                    max_value=1000, 
+                                    value=300, 
+                                    step=100
+                                )
+                            with col2:
+                                params['init'] = st.selectbox(
+                                    "Méthode d'initialisation", 
+                                    options=['k-means++', 'random'],
+                                    index=0
+                                )
+                        elif params['optimize_method'] == 'grid_search':
+                            params['cv'] = st.slider(
+                                "Nombre de folds pour validation croisée", 
+                                min_value=2, 
+                                max_value=10, 
+                                value=3
+                            )
+                        
+                        # Paramètres de sauvegarde
+                        params['save'] = st.checkbox("Sauvegarder le modèle entraîné", value=True)
+                        if params['save']:
+                            params['model_path'] = st.text_input(
+                                "Chemin pour sauvegarder le modèle", 
+                                value="models/kmeans_model.pkl"
+                            )
+                        
+                        # Forcer optimize=True si n_clusters=None
+                        params['optimize'] = True if params['n_clusters'] is None else False
                         
                     elif algo == "DBSCAN":
                         params['eps'] = st.slider("Epsilon (eps)", min_value=0.1, max_value=5.0, value=0.5, step=0.1)
@@ -290,21 +343,224 @@ with tab2:
                                 all_params = {}
                                 
                                 if algo == "K-Means":
+                                    # Préparation de dictionnaires distincts pour éviter les conflits de paramètres
+                                    # 1. Paramètres pour find_optimal_clusters
+                                    find_optimal_params = {
+                                        'k_min': params['k_min'],
+                                        'k_max': params['k_max'],
+                                        'method': params['scoring_method'],
+                                        'n_init': params['n_init']
+                                    }
+                                    
+                                    # 2. Paramètres pour optimize_kmeans
+                                    optimize_params = {
+                                        'method': params['optimize_method']
+                                    }
+                                    
+                                    # Ajouter des paramètres spécifiques selon la méthode d'optimisation
+                                    if params['optimize_method'] == 'multiple_init':
+                                        optimize_params.update({
+                                            'max_iter': params.get('max_iter', 300),
+                                            'init': params.get('init', 'k-means++')
+                                        })
+                                    elif params['optimize_method'] == 'grid_search':
+                                        optimize_params.update({
+                                            'cv': params.get('cv', 3)
+                                        })
+                                    
+                                    # 3. Paramètres généraux pour train_kmeans
                                     kmeans_params = {
                                         'n_clusters': params['n_clusters'],
                                         'optimize': params['optimize'],
-                                        'k_min': params['k_min'],
-                                        'k_max': params['k_max'],
-                                        'n_init': params['n_init'],
-                                        'optimize_method': params['optimize_method']
+                                        'save': params.get('save', True)
                                     }
-                                    all_params['kmeans'] = kmeans_params
                                     
-                                    # Appel spécifique à train_kmeans
-                                    info = model_comp.train_kmeans(**kmeans_params)
-                                    model = model_comp.models['kmeans']
-                                    labels = model.labels_
+                                    # Ajouter le chemin du modèle si sauvegarde activée
+                                    if params.get('save', True) and 'model_path' in params:
+                                        kmeans_params['model_path'] = params['model_path']
                                     
+                                    # Import direct pour éviter les problèmes de paramètres
+                                    from scripts.models.kmeans_training import train_kmeans, find_optimal_clusters
+                                    
+                                    # Si recherche automatique du nombre optimal, afficher le graphique d'analyse
+                                    if params['optimize'] and params['n_clusters'] is None:
+                                        with st.spinner("Recherche du nombre optimal de clusters..."):
+                                            # Calcul des scores pour différents nombres de clusters
+                                            scores = find_optimal_clusters(
+                                                scaled_data,
+                                                **find_optimal_params
+                                            )
+                                            
+                                            # Affichage du graphique d'analyse
+                                            st.subheader(f"Analyse du nombre optimal de clusters - {params['scoring_method']}")
+                                            fig, ax = plt.subplots(figsize=(10, 6))
+                                            ax.plot(list(scores.keys()), list(scores.values()), marker='o')
+                                            ax.set_xlabel('Nombre de clusters')
+                                            ax.set_ylabel('Score')
+                                            ax.set_title(f'Analyse du nombre optimal de clusters - {params["scoring_method"]}')
+                                            ax.grid(True)
+                                            st.pyplot(fig)
+                                            
+                                            # Sélection du nombre optimal
+                                            optimal_k = max(scores.items(), key=lambda x: x[1])[0]
+                                            st.success(f"Nombre optimal de clusters trouvé: {optimal_k}")
+                                    
+                                    # Entraînement du modèle
+                                    with st.spinner("Entraînement K-Means en cours..."):
+                                        # Créer une version personnalisée de train_kmeans pour éviter les conflits
+                                        def custom_train_kmeans(data, n_clusters=None, optimize=True, save=True,
+                                                             k_min=2, k_max=10, scoring_method='silhouette', n_init=10,
+                                                             optimize_method='multiple_init', model_path='models/kmeans_model.pkl',
+                                                             max_iter=300, init='k-means++', cv=3):
+                                            """Version personnalisée de train_kmeans pour éviter les conflits de paramètres"""
+                                            from sklearn.preprocessing import StandardScaler
+                                            from sklearn.cluster import KMeans
+                                            from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+                                            import matplotlib.pyplot as plt
+                                            import os
+                                            import joblib
+                                            import numpy as np
+                                            import time
+                                            
+                                            # Standardisation des données
+                                            scaler = StandardScaler()
+                                            scaled_data = scaler.fit_transform(data)
+                                            
+                                            # Si on doit trouver le nombre optimal de clusters
+                                            if optimize and n_clusters is None:
+                                                scores = {}
+                                                
+                                                # Évaluer différents nombres de clusters
+                                                for k in range(k_min, k_max + 1):
+                                                    kmeans = KMeans(n_clusters=k, random_state=42, n_init=n_init)
+                                                    labels = kmeans.fit_predict(scaled_data)
+                                                    
+                                                    # Calculer le score selon la méthode choisie
+                                                    if scoring_method == 'silhouette':
+                                                        scores[k] = silhouette_score(scaled_data, labels)
+                                                    elif scoring_method == 'calinski_harabasz':
+                                                        scores[k] = calinski_harabasz_score(scaled_data, labels)
+                                                    elif scoring_method == 'davies_bouldin':
+                                                        scores[k] = -davies_bouldin_score(scaled_data, labels)
+                                                    elif scoring_method == 'inertia':
+                                                        scores[k] = -kmeans.inertia_
+                                                
+                                                # Trouver le meilleur k
+                                                n_clusters = max(scores.items(), key=lambda x: x[1])[0]
+                                                st.success(f"Nombre optimal de clusters déterminé: {n_clusters}")
+                                            
+                                            # Entraîner le modèle final avec les meilleurs paramètres
+                                            best_model = None
+                                            
+                                            if optimize_method == 'multiple_init':
+                                                best_score = -np.inf
+                                                for _ in range(n_init):
+                                                    kmeans = KMeans(
+                                                        n_clusters=n_clusters,
+                                                        init=init,
+                                                        max_iter=max_iter,
+                                                        random_state=None
+                                                    )
+                                                    kmeans.fit(scaled_data)
+                                                    
+                                                    score = silhouette_score(scaled_data, kmeans.labels_)
+                                                    if score > best_score:
+                                                        best_score = score
+                                                        best_model = kmeans
+                                            
+                                            elif optimize_method == 'grid_search':
+                                                from sklearn.model_selection import GridSearchCV
+                                                
+                                                param_grid = {
+                                                    'init': ['k-means++', 'random'],
+                                                    'n_init': [10, 20],
+                                                    'max_iter': [200, 300, 400],
+                                                    'algorithm': ['elkan', 'full']
+                                                }
+                                                
+                                                kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+                                                grid_search = GridSearchCV(
+                                                    kmeans,
+                                                    param_grid=param_grid,
+                                                    cv=cv,
+                                                    scoring='silhouette'
+                                                )
+                                                grid_search.fit(scaled_data)
+                                                best_model = grid_search.best_estimator_
+                                            
+                                            elif optimize_method == 'elkan':
+                                                best_score = -np.inf
+                                                for algo in ['elkan', 'full']:
+                                                    kmeans = KMeans(
+                                                        n_clusters=n_clusters,
+                                                        algorithm=algo,
+                                                        random_state=42
+                                                    )
+                                                    kmeans.fit(scaled_data)
+                                                    
+                                                    score = silhouette_score(scaled_data, kmeans.labels_)
+                                                    if score > best_score:
+                                                        best_score = score
+                                                        best_model = kmeans
+                                            
+                                            else:
+                                                # Méthode par défaut si aucune des méthodes spécifiées n'est choisie
+                                                best_model = KMeans(
+                                                    n_clusters=n_clusters,
+                                                    init=init,
+                                                    n_init=n_init,
+                                                    random_state=42
+                                                ).fit(scaled_data)
+                                            
+                                            # Sauvegarder le modèle si demandé
+                                            if save:
+                                                os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                                                scaler_path = os.path.join(os.path.dirname(model_path), 'scaler.pkl')
+                                                
+                                                joblib.dump(best_model, model_path)
+                                                joblib.dump(scaler, scaler_path)
+                                                st.info(f"Modèle sauvegardé dans {model_path}")
+                                            
+                                            # Créer le dictionnaire d'informations
+                                            labels = best_model.labels_
+                                            info = {
+                                                'n_clusters': n_clusters,
+                                                'optimize_method': optimize_method,
+                                                'scaler': scaler,
+                                                'silhouette_score': silhouette_score(scaled_data, labels),
+                                                'calinski_harabasz_score': calinski_harabasz_score(scaled_data, labels),
+                                                'davies_bouldin_score': davies_bouldin_score(scaled_data, labels),
+                                                'inertia': best_model.inertia_
+                                            }
+                                            
+                                            return best_model, info
+                                        
+                                        # Appel de notre fonction personnalisée
+                                        # On passe les paramètres avec leurs noms explicites pour éviter tout conflit
+                                        model, info_dict = custom_train_kmeans(
+                                            data=data_for_clustering,
+                                            n_clusters=params['n_clusters'],
+                                            optimize=params['optimize'],
+                                            save=params.get('save', True),
+                                            k_min=find_optimal_params['k_min'],
+                                            k_max=find_optimal_params['k_max'],
+                                            scoring_method=find_optimal_params['method'],
+                                            n_init=find_optimal_params['n_init'],
+                                            optimize_method=optimize_params['method'],
+                                            model_path=kmeans_params.get('model_path', 'models/kmeans_model.pkl'),
+                                            max_iter=optimize_params.get('max_iter', 300),
+                                            init=optimize_params.get('init', 'k-means++'),
+                                            cv=optimize_params.get('cv', 3)
+                                        )
+                                        
+                                        # Mise à jour des attributs de modèle
+                                        model_comp.models['kmeans'] = model
+                                        info = info_dict
+                                        info['training_time'] = time.time() - start_time
+                                        model_comp.results['kmeans'] = info
+                                        
+                                        labels = model.labels_
+                                
                                 elif algo == "DBSCAN":
                                     dbscan_params = {
                                         'eps': params['eps'],
