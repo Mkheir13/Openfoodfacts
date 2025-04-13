@@ -15,7 +15,7 @@ def load_openfoodfacts(n_samples: Optional[int] = None) -> pd.DataFrame:
 		pd.DataFrame: DataFrame contenant les données OpenFoodFacts
 	"""
 	# Chargement des données depuis le fichier CSV
-	url = "data/en.openfoodfacts.org.products.csv"
+	url = "data/reduced/full_datas_100000.csv"
 	
 	# Chargement des données avec pandas
 	df = pd.read_csv(

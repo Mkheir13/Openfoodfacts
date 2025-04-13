@@ -3,6 +3,8 @@ import pandas as pd
 import os
 import numpy as np
 from scripts.data.clean_dataset import process_and_analyze_dataset, display_cleaning_summary
+from scripts.features.scaling import load_and_prepare_data, PRIORITY_KEYWORDS, VALID_RATIO_THRESHOLD
+from scripts.models.clustering import prepare_features_for_clustering
 from scripts.data.sample_large_files import get_reduced_file # Pour suggérer un fichier par défaut
 
 # Configuration de la page Streamlit
@@ -66,23 +68,93 @@ with tab1:
         if st.button("Lancer le Preprocessing", key="preprocess_button"):
             with st.spinner("Nettoyage en cours... Veuillez patienter."):
                 try:
-                    # Utiliser la fonction de clean_dataset.py
-                    # Note: process_and_analyze_dataset pourrait nécessiter des ajustements
-                    # pour gérer les paramètres via Streamlit ou pour utiliser des valeurs par défaut raisonnables.
-                    df_clean, cleaning_info = process_and_analyze_dataset(data_to_process)
+                    # Au lieu de charger à nouveau le fichier, utiliser les données déjà chargées
+                    with st.spinner("Préparation des données numériques..."):
+                        # Extraire les colonnes numériques du DataFrame déjà chargé
+                        import numpy as np
+                        import pandas as pd
+                        
+                        df_to_process = data_to_process.copy()
+                        st.write(f"Traitement de {len(df_to_process)} lignes et {len(df_to_process.columns)} colonnes...")
+                        
+                        # Code similaire à load_and_prepare_data mais adapté pour travailler avec un DataFrame existant
+                        numeric_columns = []
+                        
+                        columns_to_check = sorted(
+                            df_to_process.columns,
+                            key=lambda x: any(keyword in str(x).lower() for keyword in PRIORITY_KEYWORDS),
+                            reverse=True
+                        )
+                        
+                        for col in columns_to_check:
+                            try:
+                                if pd.api.types.is_numeric_dtype(df_to_process[col]):
+                                    numeric_columns.append(col)
+                                    continue
+                                
+                                cleaned_series = (df_to_process[col].astype(str)
+                                                .replace(['', 'NA', 'N/A', 'nan', 'NaN', 'None',
+                                                        '<NA>', 'undefined', '?'], np.nan)
+                                                .str.replace(',', '.')
+                                                .str.strip()
+                                                .str.replace(r'[^\d.-]', '', regex=True))
+                                
+                                numeric_series = pd.to_numeric(cleaned_series, errors='coerce')
+                                valid_count = numeric_series.notna().sum()
+                                valid_ratio = valid_count / len(df_to_process)
+                                
+                                if valid_ratio > VALID_RATIO_THRESHOLD:
+                                    df_to_process[col] = numeric_series
+                                    numeric_columns.append(col)
+                            except Exception as e:
+                                continue
+                        
+                        if not numeric_columns:
+                            raise ValueError("Aucune colonne numérique n'a été trouvée dans le fichier")
+                        
+                        df_numeric = df_to_process[numeric_columns].copy()
+                        
+                        for column in df_numeric.columns:
+                            df_numeric[column] = df_numeric[column].replace([np.inf, -np.inf], np.nan)
+                            median_value = df_numeric[column].median()
+                            
+                            if pd.isna(median_value):
+                                median_value = 0
+                            
+                            df_numeric[column] = df_numeric[column].fillna(median_value)
+                        
+                        st.success(f"Préparation terminée: {len(df_numeric.columns)} colonnes numériques extraites")
+                    
+                    # Étape 2: Utiliser prepare_features_for_clustering pour le traitement avancé
+                    # Paramètres configurables
+                    max_categories = st.sidebar.slider("Nombre max de catégories", 5, 100, 30)
+                    min_unique_ratio = st.sidebar.slider("Ratio min de valeurs uniques", 0.01, 0.30, 0.05)
+                    
+                    with st.spinner("Préparation des features pour clustering..."):
+                        df_clean = prepare_features_for_clustering(
+                            df_numeric,
+                            max_categories=max_categories,
+                            min_unique_ratio=min_unique_ratio
+                        )
+                        st.success("Préparation des features terminée !")
 
                     st.session_state.preprocessed_data = df_clean
-                    st.success("Preprocessing terminé !")
+                    st.success("Preprocessing complet terminé !")
 
                     # Afficher le résumé du nettoyage
                     st.subheader("Résumé du Nettoyage")
-                    # Note: display_cleaning_summary print dans la console.
-                    # Il faudra peut-être adapter pour afficher dans Streamlit.
-                    # Pour l'instant, affichons les infos brutes ou un résumé simple.
-                    st.write(f"Dimensions initiales : {cleaning_info.get('data_summary', {}).get('initial_shape', 'N/A')}")
-                    st.write(f"Dimensions finales : {cleaning_info.get('final_stats', {}).get('final_shape', df_clean.shape)}")
-                    st.write(f"Colonnes supprimées : {len(cleaning_info.get('final_stats', {}).get('columns_removed', []))} Colonnes")
-                    st.write(f"Lignes supprimées : {cleaning_info.get('data_summary', {}).get('initial_shape', [0])[0] - df_clean.shape[0]} Lignes")
+                    # Créer un résumé des opérations
+                    cleaning_summary = {
+                        "dimensions_initiales": data_to_process.shape,
+                        "dimensions_finales": df_clean.shape,
+                        "colonnes_supprimées": len(data_to_process.columns) - len(df_clean.columns),
+                        "lignes_supprimées": data_to_process.shape[0] - df_clean.shape[0]
+                    }
+                    
+                    st.write(f"Dimensions initiales : {cleaning_summary['dimensions_initiales']}")
+                    st.write(f"Dimensions finales : {cleaning_summary['dimensions_finales']}")
+                    st.write(f"Colonnes supprimées : {cleaning_summary['colonnes_supprimées']} colonnes")
+                    st.write(f"Lignes supprimées : {cleaning_summary['lignes_supprimées']} lignes")
 
                     # Option de sauvegarde
                     st.subheader("Sauvegarder les données prétraitées")
@@ -188,7 +260,12 @@ with tab2:
                         params['n_init'] = st.slider("Nombre d'initialisations (n_init)", min_value=1, max_value=20, value=5, step=1)
                         # Ajouter d'autres paramètres K-Means si besoin (init, max_iter)
                         params['k_min'] = 2 # Pour find_optimal_clusters si on l'utilise
-                        params['k_max'] = st.number_input("k max pour recherche auto (si k non fixé)", min_value=params['n_clusters'], max_value=30, value=10)
+                        # S'assurer que k_max soit au moins égal à n_clusters
+                        default_k_max = max(10, params['n_clusters'])
+                        params['k_max'] = st.number_input("k max pour recherche auto (si k non fixé)", 
+                                                         min_value=params['n_clusters'], 
+                                                         max_value=30, 
+                                                         value=default_k_max)
                         params['optimize_method'] = 'multiple_init' # Utiliser la méthode par défaut de kmeans_training
                         use_optimal_k = st.checkbox("Trouver k optimal automatiquement (ignore le slider k)?", value=False)
 
@@ -206,10 +283,8 @@ with tab2:
                             try:
                                 # Importer dynamiquement ou avoir les imports en haut
                                 from sklearn.preprocessing import StandardScaler
-                                # Importer directement KMeans et les métriques
-                                from sklearn.cluster import KMeans 
-                                from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-                                from scripts.models import kmeans_training, dbscan_training # Garder pour find_optimal_clusters
+                                # Importer la classe ModelComparison
+                                from scripts.models.model_comparison import ModelComparison
                                 import matplotlib.pyplot as plt
                                 from sklearn.decomposition import PCA
                                 import time
@@ -219,86 +294,50 @@ with tab2:
                                 scaled_data = scaler.fit_transform(data_for_clustering)
                                 st.write("Données standardisées pour le clustering.")
 
-                                # 2. Entraîner le modèle choisi
-                                model = None
-                                info = {}
+                                # 2. Initialiser et entraîner le modèle avec ModelComparison
                                 start_time = time.time()
-
+                                
+                                # Créer une instance de ModelComparison
+                                model_comp = ModelComparison(data_for_clustering)
+                                
+                                # Préparation des paramètres pour chaque algorithme
+                                all_params = {}
+                                
                                 if algo == "K-Means":
-                                     if use_optimal_k:
-                                         # Utiliser find_optimal_clusters avec n_init=1 pour accélérer la recherche
-                                         st.info(f"Recherche du k optimal entre {params['k_min']} et {params['k_max']} (n_init=1)...")
-                                         scores = kmeans_training.find_optimal_clusters(
-                                              scaled_data, 
-                                              k_max=params['k_max'], 
-                                              k_min=params['k_min'], 
-                                              method='silhouette',
-                                              n_init=1 # <-- Utilisation de n_init=1 pour la recherche
-                                              )
-                                         # Afficher le graphique des scores (peut nécessiter adaptation pour Streamlit)
-                                         # fig_k, ax_k = plt.subplots()
-                                         # ax_k.plot(list(scores.keys()), list(scores.values()), marker='o')
-                                         # ax_k.set_xlabel("Nombre de clusters (k)")
-                                         # ax_k.set_ylabel("Score Silhouette")
-                                         # st.pyplot(fig_k)
-                                         if scores:
-                                             best_k = max(scores, key=scores.get)
-                                             st.success(f"Meilleur k trouvé : {best_k} (Score: {scores[best_k]:.3f})")
-                                             params['n_clusters'] = best_k
-                                         else:
-                                             st.warning("Impossible de déterminer k optimal, utilisation de la valeur du slider.")
-                                             # Fallback sur la valeur du slider
-
-                                     # Entraînement final DIRECT avec KMeans et le n_init choisi
-                                     st.info(f"Entraînement K-Means avec k={params['n_clusters']} et n_init={params['n_init']}...")
-                                     st.write(f"Shape des données pour KMeans : {scaled_data.shape}") # <-- Afficher la shape
-                                     model = KMeans(
-                                         n_clusters=params['n_clusters'],
-                                         n_init=params['n_init'],
-                                         random_state=42, # Pour la reproductibilité de l'appel unique
-                                         algorithm='elkan' # <-- Essayer l'algorithme Elkan
-                                     )
-                                     
-                                     # Chronométrer l'étape fit
-                                     fit_start_time = time.time()
-                                     model.fit(scaled_data)
-                                     fit_time = time.time() - fit_start_time
-                                     st.write(f"Temps pour model.fit() : {fit_time:.2f} s") # <-- Afficher le temps de fit
-                                     
-                                     labels = model.labels_
-                                     
-                                     # Calculer les métriques manuellement
-                                     info = {
-                                         'n_clusters': params['n_clusters'],
-                                         'n_init': params['n_init'],
-                                         'scaler': scaler, # Garder le scaler si besoin
-                                         'silhouette_score': silhouette_score(scaled_data, labels),
-                                         'calinski_harabasz_score': calinski_harabasz_score(scaled_data, labels),
-                                         'davies_bouldin_score': davies_bouldin_score(scaled_data, labels),
-                                         'inertia': model.inertia_
-                                     }
-                                     # NOTE: L'ancien appel à train_kmeans est supprimé
-                                     # model, info = kmeans_training.train_kmeans(...)
-
-
+                                    kmeans_params = {
+                                        'n_clusters': params['n_clusters'],
+                                        'optimize': use_optimal_k,
+                                        'k_min': params['k_min'],
+                                        'k_max': params['k_max'],
+                                        'n_init': params['n_init'],
+                                        'optimize_method': params['optimize_method']
+                                    }
+                                    all_params['kmeans'] = kmeans_params
+                                    
+                                    # Appel spécifique à train_kmeans
+                                    info = model_comp.train_kmeans(**kmeans_params)
+                                    model = model_comp.models['kmeans']
+                                    labels = model.labels_
+                                    
                                 elif algo == "DBSCAN":
-                                     model, info = dbscan_training.train_dbscan(
-                                          scaled_data,
-                                          optimize=params['optimize'], # False par défaut
-                                          save=False, # Ne pas sauvegarder depuis l'UI par défaut
-                                          eps=params['eps'],
-                                          min_samples=params['min_samples']
-                                          # Passer d'autres params si ajoutés à l'UI
-                                     )
-
+                                    dbscan_params = {
+                                        'eps': params['eps'],
+                                        'min_samples': params['min_samples'],
+                                        'optimize': params['optimize']
+                                    }
+                                    all_params['dbscan'] = dbscan_params
+                                    
+                                    # Appel spécifique à train_dbscan
+                                    info = model_comp.train_dbscan(**dbscan_params)
+                                    model = model_comp.models['dbscan']
+                                    labels = model.labels_
+                                
                                 training_time = time.time() - start_time
-                                info['training_time'] = training_time # Ajouter le temps d'entraînement aux infos
+                                st.write(f"Temps total d'entraînement : {training_time:.2f} s")
 
                                 # 3. Afficher les résultats
                                 st.subheader("Résultats du Clustering")
                                 if model is not None:
-                                    labels = model.labels_ if hasattr(model, 'labels_') else None
-
                                     if labels is not None:
                                         n_clusters_found = len(set(labels)) - (1 if -1 in labels else 0)
                                         n_noise = list(labels).count(-1)
@@ -353,6 +392,59 @@ with tab2:
                                             st.pyplot(fig)
                                         else:
                                             st.warning("La visualisation PCA nécessite au moins 2 colonnes sélectionnées.")
+                                        
+                                        # Ajout d'une visualisation 3D avec PCA
+                                        st.subheader("Visualisation des Clusters en 3D (PCA)")
+                                        if scaled_data.shape[1] >= 3:
+                                            from mpl_toolkits.mplot3d import Axes3D
+                                            
+                                            # Réduire à 3 dimensions avec PCA
+                                            pca3d = PCA(n_components=3, random_state=42)
+                                            data_3d = pca3d.fit_transform(scaled_data)
+                                            
+                                            # Créer une figure 3D
+                                            fig3d = plt.figure(figsize=(10, 8))
+                                            ax3d = fig3d.add_subplot(111, projection='3d')
+                                            
+                                            # Scatter plot 3D avec couleurs par cluster
+                                            scatter3d = ax3d.scatter(
+                                                data_3d[:, 0], 
+                                                data_3d[:, 1], 
+                                                data_3d[:, 2],
+                                                c=labels, 
+                                                cmap='viridis', 
+                                                alpha=0.6,
+                                                s=10
+                                            )
+                                            
+                                            # Distinguer les points de bruit (si DBSCAN)
+                                            if n_noise > 0:
+                                                noise_points_3d = data_3d[labels == -1]
+                                                ax3d.scatter(
+                                                    noise_points_3d[:, 0],
+                                                    noise_points_3d[:, 1],
+                                                    noise_points_3d[:, 2],
+                                                    color='red',
+                                                    marker='x',
+                                                    label='Bruit',
+                                                    s=20
+                                                )
+                                                ax3d.legend()
+                                            
+                                            ax3d.set_title(f"Clusters {algo} visualisés en 3D avec PCA")
+                                            ax3d.set_xlabel("Composante Principale 1")
+                                            ax3d.set_ylabel("Composante Principale 2")
+                                            ax3d.set_zlabel("Composante Principale 3")
+                                            
+                                            # Ajouter une barre de couleur
+                                            cbar = fig3d.colorbar(scatter3d, ax=ax3d, pad=0.1)
+                                            cbar.set_label('Clusters')
+                                            
+                                            st.pyplot(fig3d)
+                                        elif scaled_data.shape[1] == 2:
+                                            st.warning("La visualisation 3D nécessite au moins 3 colonnes sélectionnées. Actuellement vous n'avez que 2 colonnes.")
+                                        else:
+                                            st.warning("La visualisation 3D nécessite au moins 3 colonnes sélectionnées.")
 
                                         # Afficher un aperçu des données avec les clusters assignés
                                         st.subheader("Aperçu des données avec clusters")

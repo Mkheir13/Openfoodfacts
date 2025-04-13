@@ -68,7 +68,7 @@ class ModelComparison:
 		--------
 		dict : Informations sur l'entraînement
 		"""
-		from kmeans_training import train_kmeans
+		from .kmeans_training import train_kmeans
 		
 		start_time = time.time()
 		model, info = train_kmeans(
@@ -98,7 +98,7 @@ class ModelComparison:
 		--------
 		dict : Informations sur l'entraînement
 		"""
-		from gmm_training import train_gmm
+		from .gmm_training import train_gmm
 		
 		start_time = time.time()
 		model, info = train_gmm(
@@ -126,7 +126,7 @@ class ModelComparison:
 		--------
 		dict : Informations sur l'entraînement
 		"""
-		from dbscan_training import train_dbscan
+		from .dbscan_training import train_dbscan
 		
 		start_time = time.time()
 		model, info = train_dbscan(
@@ -153,7 +153,7 @@ class ModelComparison:
 		--------
 		dict : Informations sur l'entraînement
 		"""
-		from optics_training import train_optics
+		from .optics_training import train_optics
 		
 		start_time = time.time()
 		model, info = train_optics(
@@ -183,7 +183,7 @@ class ModelComparison:
 		self.train_kmeans(**kwargs.get('kmeans', {}))
 		self.train_gmm(**kwargs.get('gmm', {}))
 		self.train_dbscan(**kwargs.get('dbscan', {}))
-		self.train_optics(**kwargs.get('optics', {}))
+		# self.train_optics(**kwargs.get('optics', {}))
 		
 		return self.results
 
