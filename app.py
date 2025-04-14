@@ -217,7 +217,7 @@ with tab2:
 
                     # --- Choix de l'algorithme et des hyperparamètres ---
                     st.subheader("Configuration du Clustering")
-                    algo = st.selectbox("Choisissez l'algorithme de clustering :", ["K-Means", "DBSCAN"]) # Ajouter GMM, OPTICS plus tard
+                    algo = st.selectbox("Choisissez l'algorithme de clustering :", ["K-Means", "DBSCAN", "GMM"]) # Ajout de GMM
 
                     params = {}
                     if algo == "K-Means":
@@ -314,6 +314,114 @@ with tab2:
                         params['min_samples'] = st.slider("Nombre minimum de points (min_samples)", min_value=2, max_value=50, value=5, step=1)
                         # Ajouter d'autres paramètres DBSCAN (metric, algorithm)
                         params['optimize'] = False # Ne pas optimiser par défaut dans l'UI, utiliser les valeurs fournies
+                    
+                    elif algo == "GMM":
+                        # Partie 1: Configuration de l'optimisation du nombre de composantes
+                        st.subheader("Optimisation du nombre de composantes")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            params['n_min'] = st.number_input("Nombre minimum de composantes à tester", 
+                                                          min_value=2, 
+                                                          max_value=10, 
+                                                          value=2)
+                        with col2:
+                            params['n_max'] = st.number_input("Nombre maximum de composantes à tester", 
+                                                          min_value=3, 
+                                                          max_value=30, 
+                                                          value=15)
+                        
+                        # Méthodes de scoring pour l'optimisation
+                        scoring_methods = ['silhouette', 'calinski_harabasz', 'davies_bouldin', 'bic']
+                        params['scoring_method'] = st.selectbox(
+                            "Méthode d'évaluation pour le nombre optimal de composantes", 
+                            options=scoring_methods,
+                            index=0,  # silhouette par défaut
+                            help="Silhouette (plus élevé = meilleur), Calinski-Harabasz (plus élevé = meilleur), Davies-Bouldin (plus bas = meilleur), BIC (plus bas = meilleur)",
+                            key="gmm_scoring_method"
+                        )
+                        
+                        params['n_init'] = st.slider("Nombre d'initialisations pour chaque valeur de n", 
+                                                 min_value=1, 
+                                                 max_value=20, 
+                                                 value=10,
+                                                 key="gmm_n_init")
+                        
+                        # Partie 2: Configuration de l'entraînement GMM
+                        st.subheader("Configuration de l'entraînement GMM")
+                        
+                        # Option pour utiliser le nombre optimal ou définir manuellement
+                        use_optimal = st.checkbox("Rechercher automatiquement le nombre optimal de composantes", 
+                                              value=True,
+                                              key="gmm_use_optimal")
+                        if not use_optimal:
+                            params['n_components'] = st.number_input(
+                                "Nombre de composantes", 
+                                min_value=2, 
+                                max_value=50, 
+                                value=5,
+                                key="gmm_n_components"
+                            )
+                        else:
+                            params['n_components'] = None
+                        
+                        # Méthodes d'optimisation pour GMM
+                        optimize_methods = ['multiple_init', 'grid_search', 'covariance_type']
+                        params['optimize_method'] = st.selectbox(
+                            "Méthode d'optimisation des paramètres GMM", 
+                            options=optimize_methods,
+                            index=0,  # multiple_init par défaut
+                            key="gmm_optimize_method"
+                        )
+                        
+                        # Paramètres spécifiques selon la méthode d'optimisation
+                        if params['optimize_method'] == 'multiple_init':
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                params['max_iter'] = st.slider(
+                                    "Nombre maximum d'itérations", 
+                                    min_value=50, 
+                                    max_value=500, 
+                                    value=100, 
+                                    step=50,
+                                    key="gmm_max_iter"
+                                )
+                            with col2:
+                                params['init_params'] = st.selectbox(
+                                    "Méthode d'initialisation", 
+                                    options=['kmeans', 'random'],
+                                    index=0,
+                                    key="gmm_init_params"
+                                )
+                        elif params['optimize_method'] == 'grid_search':
+                            params['cv'] = st.slider(
+                                "Nombre de folds pour validation croisée", 
+                                min_value=2, 
+                                max_value=10, 
+                                value=3,
+                                key="gmm_cv"
+                            )
+                        elif params['optimize_method'] == 'covariance_type':
+                            params['cov_types'] = st.multiselect(
+                                "Types de matrices de covariance à tester",
+                                options=['full', 'tied', 'diag', 'spherical'],
+                                default=['full', 'tied', 'diag', 'spherical'],
+                                key="gmm_cov_types"
+                            )
+                        
+                        # Paramètres de sauvegarde
+                        params['save'] = st.checkbox("Sauvegarder le modèle entraîné", 
+                                                 value=True,
+                                                 key="gmm_save")
+                        if params['save']:
+                            params['model_path'] = st.text_input(
+                                "Chemin pour sauvegarder le modèle", 
+                                value="models/gmm_model.pkl",
+                                key="gmm_model_path"
+                            )
+                        
+                        # Forcer optimize=True si n_components=None
+                        params['optimize'] = True if params['n_components'] is None else False
 
 
                     # --- Bouton pour lancer le clustering ---
@@ -574,6 +682,208 @@ with tab2:
                                     model = model_comp.models['dbscan']
                                     labels = model.labels_
                                 
+                                elif algo == "GMM":
+                                    # Créer une version personnalisée de train_gmm pour éviter les conflits
+                                    def custom_train_gmm(data, n_components=None, optimize=True, save=True,
+                                                     n_min=2, n_max=10, scoring_method='silhouette', n_init=10,
+                                                     optimize_method='multiple_init', model_path='models/gmm_model.pkl',
+                                                     max_iter=100, init_params='kmeans', cv=3, cov_types=None):
+                                        """Version personnalisée de train_gmm pour éviter les conflits de paramètres"""
+                                        from sklearn.preprocessing import StandardScaler
+                                        from sklearn.mixture import GaussianMixture
+                                        from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+                                        import matplotlib.pyplot as plt
+                                        import os
+                                        import joblib
+                                        import numpy as np
+                                        import time
+                                        
+                                        # Standardisation des données
+                                        scaler = StandardScaler()
+                                        scaled_data = scaler.fit_transform(data)
+                                        
+                                        # Si on doit trouver le nombre optimal de composantes
+                                        if optimize and n_components is None:
+                                            scores = {}
+                                            
+                                            # Évaluer différents nombres de composantes
+                                            for n in range(n_min, n_max + 1):
+                                                gmm = GaussianMixture(n_components=n, random_state=42)
+                                                labels = gmm.fit_predict(scaled_data)
+                                                
+                                                # Calculer le score selon la méthode choisie
+                                                if scoring_method == 'silhouette':
+                                                    scores[n] = silhouette_score(scaled_data, labels)
+                                                elif scoring_method == 'calinski_harabasz':
+                                                    scores[n] = calinski_harabasz_score(scaled_data, labels)
+                                                elif scoring_method == 'davies_bouldin':
+                                                    scores[n] = -davies_bouldin_score(scaled_data, labels)
+                                                elif scoring_method == 'bic':
+                                                    scores[n] = -gmm.bic(scaled_data)
+                                            
+                                            # Trouver le meilleur n
+                                            n_components = max(scores.items(), key=lambda x: x[1])[0]
+                                            st.success(f"Nombre optimal de composantes déterminé: {n_components}")
+                                        
+                                        # Entraîner le modèle final avec les meilleurs paramètres
+                                        best_model = None
+                                        
+                                        if optimize_method == 'multiple_init':
+                                            best_score = -np.inf
+                                            for _ in range(n_init):
+                                                gmm = GaussianMixture(
+                                                    n_components=n_components,
+                                                    init_params=init_params,
+                                                    max_iter=max_iter,
+                                                    random_state=None
+                                                )
+                                                gmm.fit(scaled_data)
+                                                
+                                                score = silhouette_score(scaled_data, gmm.predict(scaled_data))
+                                                if score > best_score:
+                                                    best_score = score
+                                                    best_model = gmm
+                                        
+                                        elif optimize_method == 'grid_search':
+                                            from sklearn.model_selection import GridSearchCV
+                                            
+                                            param_grid = {
+                                                'init_params': ['kmeans', 'random'],
+                                                'n_init': [10, 20],
+                                                'max_iter': [100, 200],
+                                                'covariance_type': ['full', 'tied', 'diag', 'spherical']
+                                            }
+                                            
+                                            gmm = GaussianMixture(n_components=n_components, random_state=42)
+                                            grid_search = GridSearchCV(
+                                                gmm,
+                                                param_grid=param_grid,
+                                                cv=cv,
+                                                scoring='silhouette'
+                                            )
+                                            grid_search.fit(scaled_data)
+                                            best_model = grid_search.best_estimator_
+                                        
+                                        elif optimize_method == 'covariance_type':
+                                            best_score = -np.inf
+                                            types = cov_types if cov_types else ['full', 'tied', 'diag', 'spherical']
+                                            for cov_type in types:
+                                                gmm = GaussianMixture(
+                                                    n_components=n_components,
+                                                    covariance_type=cov_type,
+                                                    random_state=42
+                                                )
+                                                gmm.fit(scaled_data)
+                                                
+                                                score = silhouette_score(scaled_data, gmm.predict(scaled_data))
+                                                if score > best_score:
+                                                    best_score = score
+                                                    best_model = gmm
+                                        
+                                        else:
+                                            # Méthode par défaut
+                                            best_model = GaussianMixture(
+                                                n_components=n_components,
+                                                init_params=init_params,
+                                                max_iter=max_iter,
+                                                random_state=42
+                                            ).fit(scaled_data)
+                                        
+                                        # Sauvegarder le modèle si demandé
+                                        if save:
+                                            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                                            scaler_path = os.path.join(os.path.dirname(model_path), 'scaler.pkl')
+                                            
+                                            joblib.dump(best_model, model_path)
+                                            joblib.dump(scaler, scaler_path)
+                                            st.info(f"Modèle sauvegardé dans {model_path}")
+                                        
+                                        # Créer le dictionnaire d'informations
+                                        labels = best_model.predict(scaled_data)
+                                        info = {
+                                            'n_components': n_components,
+                                            'optimize_method': optimize_method,
+                                            'scaler': scaler,
+                                            'silhouette_score': silhouette_score(scaled_data, labels),
+                                            'calinski_harabasz_score': calinski_harabasz_score(scaled_data, labels),
+                                            'davies_bouldin_score': davies_bouldin_score(scaled_data, labels),
+                                            'bic': best_model.bic(scaled_data),
+                                            'aic': best_model.aic(scaled_data)
+                                        }
+                                        
+                                        return best_model, info
+                                    
+                                    # Préparation des paramètres pour GMM
+                                    # Si recherche automatique du nombre optimal, afficher le graphique d'analyse
+                                    if params['optimize'] and params['n_components'] is None:
+                                        with st.spinner("Recherche du nombre optimal de composantes..."):
+                                            # Calcul des scores pour différents nombres de composantes
+                                            gmm_scores = {}
+                                            
+                                            # Standardiser les données
+                                            scaler = StandardScaler()
+                                            scaled_data_gmm = scaler.fit_transform(data_for_clustering)
+                                            
+                                            # Évaluer différents nombres de composantes
+                                            for n in range(params['n_min'], params['n_max'] + 1):
+                                                from sklearn.mixture import GaussianMixture
+                                                gmm = GaussianMixture(n_components=n, random_state=42, n_init=params['n_init'])
+                                                labels = gmm.fit_predict(scaled_data_gmm)
+                                                
+                                                # Calculer le score selon la méthode choisie
+                                                if params['scoring_method'] == 'silhouette':
+                                                    from sklearn.metrics import silhouette_score
+                                                    gmm_scores[n] = silhouette_score(scaled_data_gmm, labels)
+                                                elif params['scoring_method'] == 'calinski_harabasz':
+                                                    from sklearn.metrics import calinski_harabasz_score
+                                                    gmm_scores[n] = calinski_harabasz_score(scaled_data_gmm, labels)
+                                                elif params['scoring_method'] == 'davies_bouldin':
+                                                    from sklearn.metrics import davies_bouldin_score
+                                                    gmm_scores[n] = -davies_bouldin_score(scaled_data_gmm, labels)
+                                                elif params['scoring_method'] == 'bic':
+                                                    gmm_scores[n] = -gmm.bic(scaled_data_gmm)
+                                            
+                                            # Affichage du graphique d'analyse
+                                            st.subheader(f"Analyse du nombre optimal de composantes - {params['scoring_method']}")
+                                            fig, ax = plt.subplots(figsize=(10, 6))
+                                            ax.plot(list(gmm_scores.keys()), list(gmm_scores.values()), marker='o')
+                                            ax.set_xlabel('Nombre de composantes')
+                                            ax.set_ylabel('Score')
+                                            ax.set_title(f'Analyse du nombre optimal de composantes - {params["scoring_method"]}')
+                                            ax.grid(True)
+                                            st.pyplot(fig)
+                                            
+                                            # Sélection du nombre optimal
+                                            optimal_n = max(gmm_scores.items(), key=lambda x: x[1])[0]
+                                            st.success(f"Nombre optimal de composantes trouvé: {optimal_n}")
+                                    
+                                    # Appel de notre fonction personnalisée avec les paramètres explicites
+                                    with st.spinner("Entraînement GMM en cours..."):
+                                        model, info_dict = custom_train_gmm(
+                                            data=data_for_clustering,
+                                            n_components=params['n_components'],
+                                            optimize=params['optimize'],
+                                            save=params.get('save', True),
+                                            n_min=params['n_min'],
+                                            n_max=params['n_max'],
+                                            scoring_method=params['scoring_method'],
+                                            n_init=params['n_init'],
+                                            optimize_method=params['optimize_method'],
+                                            model_path=params.get('model_path', 'models/gmm_model.pkl'),
+                                            max_iter=params.get('max_iter', 100),
+                                            init_params=params.get('init_params', 'kmeans'),
+                                            cv=params.get('cv', 3),
+                                            cov_types=params.get('cov_types', None)
+                                        )
+                                        
+                                        # Mise à jour des attributs de modèle
+                                        model_comp.models['gmm'] = model
+                                        info = info_dict
+                                        info['training_time'] = time.time() - start_time
+                                        model_comp.results['gmm'] = info
+                                        
+                                        labels = model.predict(scaled_data)
+                                
                                 training_time = time.time() - start_time
                                 st.write(f"Temps total d'entraînement : {training_time:.2f} s")
 
@@ -691,6 +1001,45 @@ with tab2:
                                         # Afficher un aperçu des données avec les clusters assignés
                                         st.subheader("Aperçu des données avec clusters")
                                         st.dataframe(df_cluster_results.head())
+                                        
+                                        # Analyse des caractéristiques des clusters
+                                        st.subheader("Analyse des clusters")
+                                        
+                                        # Récupérer le DataFrame original avec toutes les caractéristiques
+                                        # Utiliser data_for_clustering pour les caractéristiques et ajouter les labels
+                                        df_with_clusters = data_for_clustering.copy()
+                                        df_with_clusters['cluster'] = labels
+                                        
+                                        # Déterminer le nombre de clusters
+                                        unique_clusters = sorted(df_with_clusters['cluster'].unique())
+                                        # Exclure le cluster -1 (bruit) s'il existe
+                                        if -1 in unique_clusters:
+                                            unique_clusters.remove(-1)
+                                            st.info(f"Cluster -1 (points de bruit) exclu de l'analyse des caractéristiques.")
+                                        
+                                        # Pour chaque cluster, déterminer les 5 caractéristiques les plus importantes
+                                        for cluster_id in unique_clusters:
+                                            st.write(f"**Cluster {cluster_id}** ({(df_with_clusters['cluster'] == cluster_id).sum()} points)")
+                                            
+                                            # Sélectionner les données de ce cluster
+                                            cluster_data = df_with_clusters[df_with_clusters['cluster'] == cluster_id]
+                                            
+                                            # Méthode 1: Caractéristiques avec les moyennes les plus élevées
+                                            means = cluster_data.mean().sort_values(ascending=False)
+                                            st.write("Caractéristiques avec les moyennes les plus élevées:")
+                                            st.write(means.head(5))
+                                            
+                                            # Méthode 2: Caractéristiques les plus distinctives (différence avec la moyenne globale)
+                                            global_means = df_with_clusters.mean()
+                                            diff = (cluster_data.mean() - global_means).abs().sort_values(ascending=False)
+                                            st.write("Caractéristiques les plus distinctives:")
+                                            st.write(diff.head(5))
+                                            
+                                            # Ajouter une ligne de séparation entre les clusters
+                                            st.markdown("---")
+                                        
+                                        # Si des métadonnées ou des libellés sont disponibles, ajouter une analyse plus descriptive
+                                        st.info("Conseil: Pour une analyse plus détaillée, utilisez les métadonnées ou les libellés associés aux caractéristiques numériques.")
 
                                     else:
                                         st.error("Le modèle n'a pas retourné de labels.")
