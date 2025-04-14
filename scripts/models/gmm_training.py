@@ -20,10 +20,10 @@ except ImportError as e:
 	print(f"Erreur lors de l'importation des modules : {e}")
 
 
-def find_optimal_components(data, n_max=10, n_min=2, method='silhouette'):
+def find_optimal_components(data: np.ndarray, n_max: int = 10, n_min: int = 2, method: str = 'silhouette') -> dict[int, float]:
 	"""
 	Détermine le nombre optimal de composantes en utilisant différentes métriques.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -38,7 +38,7 @@ def find_optimal_components(data, n_max=10, n_min=2, method='silhouette'):
 		- 'calinski_harabasz' : Score de Calinski-Harabasz (plus élevé = meilleur)
 		- 'davies_bouldin' : Score de Davies-Bouldin (plus bas = meilleur)
 		- 'bic' : BIC (plus bas = meilleur)
-	
+
 	Retourne:
 	--------
 	dict : Dictionnaire contenant les scores pour chaque nombre de composantes
@@ -68,10 +68,10 @@ def find_optimal_components(data, n_max=10, n_min=2, method='silhouette'):
 	return scores
 
 
-def plot_component_scores(scores, method):
+def plot_component_scores(scores: dict[int, float], method: str):
 	"""
 	Visualise les scores pour différents nombres de composantes.
-	
+
 	Paramètres:
 	-----------
 	scores : dict
@@ -88,10 +88,10 @@ def plot_component_scores(scores, method):
 	plt.show()
 
 
-def optimize_gmm(data, n_components, method='multiple_init', **kwargs):
+def optimize_gmm(data: np.ndarray, n_components: int, method: str = 'multiple_init', **kwargs) -> GaussianMixture:
 	"""
 	Optimise les paramètres de GMM en utilisant différentes stratégies.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -104,7 +104,7 @@ def optimize_gmm(data, n_components, method='multiple_init', **kwargs):
 		- 'grid_search' : Utilise GridSearchCV pour tester plusieurs combinaisons
 		- 'covariance_type' : Compare différents types de matrices de covariance
 		- 'custom_init' : Utilise des paramètres initiaux personnalisés
-	
+
 	**kwargs : arguments additionnels selon la méthode
 		Pour 'multiple_init' :
 			- n_init : int (défaut=10)
@@ -114,7 +114,7 @@ def optimize_gmm(data, n_components, method='multiple_init', **kwargs):
 			- cv : int (défaut=3)
 		Pour 'covariance_type' :
 			- types : list (défaut=['full', 'tied', 'diag', 'spherical'])
-	
+
 	Retourne:
 	--------
 	GaussianMixture : Le meilleur modèle GMM trouvé
@@ -218,10 +218,10 @@ def optimize_gmm(data, n_components, method='multiple_init', **kwargs):
 	)
 
 
-def train_gmm(data, n_components=None, optimize=True, save=True, **kwargs):
+def train_gmm(data: np.ndarray, n_components: int | None = None, optimize: bool = True, save: bool = True, **kwargs) -> tuple[GaussianMixture, dict]:
 	"""
 	Fonction principale pour entraîner un modèle GMM.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -243,7 +243,7 @@ def train_gmm(data, n_components=None, optimize=True, save=True, **kwargs):
 			Méthode d'optimisation des paramètres
 		- model_path : str (défaut='models/gmm_model.pkl')
 			Chemin pour sauvegarder le modèle
-	
+
 	Retourne:
 	--------
 	tuple : (GaussianMixture, dict)
@@ -317,10 +317,10 @@ def train_gmm(data, n_components=None, optimize=True, save=True, **kwargs):
 	return model, info
 
 
-def predict_clusters(model, data, scaler=None):
+def predict_clusters(model: GaussianMixture, data: np.ndarray, scaler: StandardScaler | None = None) -> np.ndarray:
 	"""
 	Prédit les clusters pour de nouvelles données.
-	
+
 	Paramètres:
 	-----------
 	model : GaussianMixture
@@ -329,7 +329,7 @@ def predict_clusters(model, data, scaler=None):
 		Les données à prédire
 	scaler : StandardScaler, optional
 		Le scaler utilisé pour l'entraînement. Si None, les données ne seront pas standardisées
-	
+
 	Retourne:
 	--------
 	array-like
@@ -340,10 +340,10 @@ def predict_clusters(model, data, scaler=None):
 	return model.predict(data)
 
 
-def save_model(model, path="models/gmm_model.pkl"):
+def save_model(model: GaussianMixture, path: str = "models/gmm_model.pkl"):
 	"""
 	Sauvegarde le modèle GMM entraîné.
-	
+
 	Paramètres:
 	-----------
 	model : GaussianMixture
@@ -354,23 +354,23 @@ def save_model(model, path="models/gmm_model.pkl"):
 	joblib.dump(model, path)
 
 
-def load_gmm(model_path, scaler_path=None):
+def load_gmm(model_path: str, scaler_path: str | None = None) -> tuple[GaussianMixture, StandardScaler | None]:
 	"""
 	Charge un modèle GMM pré-entraîné et son scaler associé.
-	
+
 	Paramètres:
 	-----------
 	model_path : str
 		Chemin vers le fichier du modèle GMM sauvegardé
 	scaler_path : str, optional
 		Chemin vers le fichier du scaler sauvegardé. Si None, cherchera dans le même dossier
-	
+
 	Retourne:
 	--------
 	tuple : (GaussianMixture, StandardScaler)
 		- Le modèle GMM chargé
 		- Le scaler associé (si trouvé)
-	
+
 	Raises:
 	------
 	FileNotFoundError

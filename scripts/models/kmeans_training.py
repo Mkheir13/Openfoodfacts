@@ -20,10 +20,10 @@ except ImportError as e:
     print(f"Erreur lors de l'importation des modules : {e}")
 
 
-def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette', n_init=10):
+def find_optimal_clusters(data: np.ndarray, k_max: int = 10, k_min: int = 2, method: str = 'silhouette', n_init: int = 10) -> dict[int, float]:
     """
     Détermine le nombre optimal de clusters en utilisant différentes métriques.
-    
+
     Paramètres:
     -----------
     data : array-like
@@ -40,7 +40,7 @@ def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette', n_init=1
         - 'inertia' : Inertie du clustering (plus bas = meilleur)
     n_init : int
         Nombre d'initialisations pour chaque valeur de k (défaut: 10)
-    
+
     Retourne:
     --------
     dict : Dictionnaire contenant les scores pour chaque nombre de clusters
@@ -70,10 +70,10 @@ def find_optimal_clusters(data, k_max=10, k_min=2, method='silhouette', n_init=1
     return scores
 
 
-def plot_cluster_scores(scores, method):
+def plot_cluster_scores(scores: dict[int, float], method: str):
     """
     Visualise les scores pour différents nombres de clusters.
-    
+
     Paramètres:
     -----------
     scores : dict
@@ -90,10 +90,10 @@ def plot_cluster_scores(scores, method):
     plt.show()
 
 
-def optimize_kmeans(data, n_clusters, method='multiple_init', **kwargs):
+def optimize_kmeans(data: np.ndarray, n_clusters: int, method: str = 'multiple_init', **kwargs) -> KMeans:
     """
     Optimise les paramètres de K-means en utilisant différentes stratégies.
-    
+
     Paramètres:
     -----------
     data : array-like
@@ -106,7 +106,7 @@ def optimize_kmeans(data, n_clusters, method='multiple_init', **kwargs):
         - 'grid_search' : Utilise GridSearchCV pour tester plusieurs combinaisons
         - 'elkan' : Compare les algorithmes 'elkan' et 'full'
         - 'custom_init' : Utilise des centres initiaux personnalisés
-    
+
     **kwargs : arguments additionnels selon la méthode
         Pour 'multiple_init' :
             - n_init : int (défaut=10)
@@ -116,7 +116,7 @@ def optimize_kmeans(data, n_clusters, method='multiple_init', **kwargs):
             - cv : int (défaut=3)
         Pour 'custom_init' :
             - init_centers : array-like
-    
+
     Retourne:
     --------
     KMeans : Le meilleur modèle K-means trouvé
@@ -220,10 +220,10 @@ def optimize_kmeans(data, n_clusters, method='multiple_init', **kwargs):
     )
 
 
-def train_kmeans(data, n_clusters=None, optimize=True, save=True, **kwargs):
+def train_kmeans(data: np.ndarray, n_clusters: int | None = None, optimize: bool = True, save: bool = True, **kwargs) -> tuple[KMeans, dict]:
     """
     Fonction principale pour entraîner un modèle K-means.
-    
+
     Paramètres:
     -----------
     data : array-like
@@ -245,7 +245,7 @@ def train_kmeans(data, n_clusters=None, optimize=True, save=True, **kwargs):
             Méthode d'optimisation des paramètres
         - model_path : str (défaut='models/kmeans_model.pkl')
             Chemin pour sauvegarder le modèle
-    
+
     Retourne:
     --------
     tuple : (KMeans, dict)
@@ -318,10 +318,10 @@ def train_kmeans(data, n_clusters=None, optimize=True, save=True, **kwargs):
     return model, info
 
 
-def predict_clusters(model, data, scaler=None):
+def predict_clusters(model: KMeans, data: np.ndarray, scaler: StandardScaler | None = None) -> np.ndarray:
     """
     Prédit les clusters pour de nouvelles données.
-    
+
     Paramètres:
     -----------
     model : KMeans
@@ -330,7 +330,7 @@ def predict_clusters(model, data, scaler=None):
         Les données à prédire
     scaler : StandardScaler, optional
         Le scaler utilisé pour l'entraînement. Si None, les données ne seront pas standardisées
-    
+
     Retourne:
     --------
     array-like
@@ -341,10 +341,10 @@ def predict_clusters(model, data, scaler=None):
     return model.predict(data)
 
 
-def save_model(model, path="models/kmeans_model.pkl"):
+def save_model(model: KMeans, path: str = "models/kmeans_model.pkl"):
     """
     Sauvegarde le modèle K-means entraîné.
-    
+
     Paramètres:
     -----------
     model : KMeans
@@ -355,23 +355,23 @@ def save_model(model, path="models/kmeans_model.pkl"):
     joblib.dump(model, path)
 
 
-def load_kmeans(model_path, scaler_path=None):
+def load_kmeans(model_path: str, scaler_path: str | None = None) -> tuple[KMeans, StandardScaler | None]:
     """
     Charge un modèle K-means pré-entraîné et son scaler associé.
-    
+
     Paramètres:
     -----------
     model_path : str
         Chemin vers le fichier du modèle K-means sauvegardé
     scaler_path : str, optional
         Chemin vers le fichier du scaler sauvegardé. Si None, cherchera dans le même dossier
-    
+
     Retourne:
     --------
     tuple : (KMeans, StandardScaler)
         - Le modèle K-means chargé
         - Le scaler associé (si trouvé)
-    
+
     Raises:
     -------
     FileNotFoundError

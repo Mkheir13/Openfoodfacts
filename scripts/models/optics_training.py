@@ -13,17 +13,16 @@ try:
 		davies_bouldin_score,
 		silhouette_score,
 	)
-	from sklearn.model_selection import GridSearchCV
 	from sklearn.preprocessing import StandardScaler
 	import joblib
 except ImportError as e:
 	print(f"Erreur lors de l'importation des modules : {e}")
 
 
-def find_optimal_parameters(data, min_samples_range=None, xi_range=None, method='silhouette'):
+def find_optimal_parameters(data: np.ndarray, min_samples_range: np.ndarray | None = None, xi_range: np.ndarray | None = None, method: str = 'silhouette') -> dict[tuple[int, float], float]:
 	"""
 	Détermine les paramètres optimaux de OPTICS en utilisant différentes métriques.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -37,7 +36,7 @@ def find_optimal_parameters(data, min_samples_range=None, xi_range=None, method=
 		- 'silhouette' : Score de silhouette (plus élevé = meilleur)
 		- 'calinski_harabasz' : Score de Calinski-Harabasz (plus élevé = meilleur)
 		- 'davies_bouldin' : Score de Davies-Bouldin (plus bas = meilleur)
-	
+
 	Retourne:
 	--------
 	dict : Dictionnaire contenant les scores pour chaque combinaison de paramètres
@@ -80,10 +79,10 @@ def find_optimal_parameters(data, min_samples_range=None, xi_range=None, method=
 	return scores
 
 
-def plot_parameter_scores(scores, method):
+def plot_parameter_scores(scores: dict[tuple[int, float], float], method: str):
 	"""
 	Visualise les scores pour différentes combinaisons de paramètres.
-	
+
 	Paramètres:
 	-----------
 	scores : dict
@@ -94,7 +93,7 @@ def plot_parameter_scores(scores, method):
 	# Extraction des paramètres et scores
 	min_samples_values = sorted(list(set(k[0] for k in scores.keys())))
 	xi_values = sorted(list(set(k[1] for k in scores.keys())))
-	
+
 	# Création de la matrice de scores
 	score_matrix = np.zeros((len(min_samples_values), len(xi_values)))
 	for (min_samples, xi), score in scores.items():
@@ -114,10 +113,10 @@ def plot_parameter_scores(scores, method):
 	plt.show()
 
 
-def optimize_optics(data, method='grid_search', **kwargs):
+def optimize_optics(data: np.ndarray, method: str = 'grid_search', **kwargs) -> OPTICS:
 	"""
 	Optimise les paramètres de OPTICS en utilisant différentes stratégies.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -127,7 +126,7 @@ def optimize_optics(data, method='grid_search', **kwargs):
 		- 'grid_search' : Teste plusieurs combinaisons de paramètres (défaut)
 		- 'auto' : Utilise les paramètres par défaut de scikit-learn
 		- 'custom' : Utilise des paramètres personnalisés
-	
+
 	**kwargs : arguments additionnels selon la méthode
 		Pour 'grid_search' :
 			- min_samples_range : array-like (défaut=None)
@@ -139,7 +138,7 @@ def optimize_optics(data, method='grid_search', **kwargs):
 			- min_samples : int
 			- xi : float
 			- min_cluster_size : int (défaut=None)
-	
+
 	Retourne:
 	--------
 	OPTICS : Le meilleur modèle OPTICS trouvé
@@ -173,7 +172,7 @@ def optimize_optics(data, method='grid_search', **kwargs):
 		min_samples = kwargs.get('min_samples')
 		xi = kwargs.get('xi')
 		min_cluster_size = kwargs.get('min_cluster_size')
-		
+
 		if min_samples is None or xi is None:
 			raise ValueError("min_samples et xi doivent être fournis pour la méthode 'custom'")
 
@@ -188,10 +187,10 @@ def optimize_optics(data, method='grid_search', **kwargs):
 	)
 
 
-def train_optics(data, optimize=True, save=True, **kwargs):
+def train_optics(data: np.ndarray, optimize: bool = True, save: bool = True, **kwargs) -> tuple[OPTICS, dict]:
 	"""
 	Fonction principale pour entraîner un modèle OPTICS.
-	
+
 	Paramètres:
 	-----------
 	data : array-like
@@ -209,7 +208,7 @@ def train_optics(data, optimize=True, save=True, **kwargs):
 			Plage de valeurs pour xi
 		- model_path : str (défaut='models/optics_model.pkl')
 			Chemin pour sauvegarder le modèle
-	
+
 	Retourne:
 	--------
 	tuple : (OPTICS, dict)
@@ -272,10 +271,10 @@ def train_optics(data, optimize=True, save=True, **kwargs):
 	return model, info
 
 
-def predict_clusters(model, data, scaler=None):
+def predict_clusters(model: OPTICS, data: np.ndarray, scaler: StandardScaler | None = None) -> np.ndarray:
 	"""
 	Prédit les clusters pour de nouvelles données.
-	
+
 	Paramètres:
 	-----------
 	model : OPTICS
@@ -284,7 +283,7 @@ def predict_clusters(model, data, scaler=None):
 		Les données à prédire
 	scaler : StandardScaler, optional
 		Le scaler utilisé pour l'entraînement. Si None, les données ne seront pas standardisées
-	
+
 	Retourne:
 	--------
 	array-like
@@ -295,10 +294,10 @@ def predict_clusters(model, data, scaler=None):
 	return model.fit_predict(data)
 
 
-def save_model(model, path="models/optics_model.pkl"):
+def save_model(model: OPTICS, path: str = "models/optics_model.pkl"):
 	"""
 	Sauvegarde le modèle OPTICS entraîné.
-	
+
 	Paramètres:
 	-----------
 	model : OPTICS
@@ -309,23 +308,23 @@ def save_model(model, path="models/optics_model.pkl"):
 	joblib.dump(model, path)
 
 
-def load_optics(model_path, scaler_path=None):
+def load_optics(model_path: str, scaler_path: str | None = None) -> tuple[OPTICS, StandardScaler | None]:
 	"""
 	Charge un modèle OPTICS pré-entraîné et son scaler associé.
-	
+
 	Paramètres:
 	-----------
 	model_path : str
 		Chemin vers le fichier du modèle OPTICS sauvegardé
 	scaler_path : str, optional
 		Chemin vers le fichier du scaler sauvegardé. Si None, cherchera dans le même dossier
-	
+
 	Retourne:
 	--------
 	tuple : (OPTICS, StandardScaler)
 		- Le modèle OPTICS chargé
 		- Le scaler associé (si trouvé)
-	
+
 	Raises:
 	------
 	FileNotFoundError
