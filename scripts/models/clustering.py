@@ -2,8 +2,8 @@
 Module pour la préparation des données pour le clustering.
 """
 import pandas as pd
+from ..data.correlation_analysis import analyze_correlations
 from ..features.selection import analyze_and_select_features
-from ..features.processing import analyze_correlations
 
 def prepare_features_for_clustering(
     df: pd.DataFrame,

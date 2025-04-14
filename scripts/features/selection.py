@@ -3,8 +3,8 @@ import pandas as pd
 from .processing import (
     process_numeric_columns,
     process_categorical_columns,
-    analyze_correlations
 )
+from ..data.correlation_analysis import analyze_correlations
 
 def analyze_and_select_features(
     df: pd.DataFrame,
